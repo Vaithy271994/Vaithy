@@ -1,0 +1,140 @@
+Assuming you have Django installed, create a new Django project and a new app within the project:
+
+django-admin startproject data_pusher_project
+cd data_pusher_project
+django-admin startapp data_pusher_app
+
+
+Define Models:
+
+from django.db import models
+
+class Account(models.Model):
+    email = models.EmailField(unique=True)
+    account_id = models.CharField(max_length=20, unique=True)
+    account_name = models.CharField(max_length=100)
+    app_secret_token = models.CharField(max_length=50, unique=True)
+    website = models.URLField(blank=True)
+
+class Destination(models.Model):
+    account = models.ForeignKey(Account, on_delete=models.CASCADE)
+    url = models.URLField()
+    http_method = models.CharField(max_length=10)
+    headers = models.JSONField()
+
+Define Serializers:
+
+# data_pusher_app/serializers.py
+
+from rest_framework import serializers
+from .models import Account, Destination
+
+class AccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Account
+        fields = '__all__'
+
+class DestinationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Destination
+        fields = '__all__'
+
+
+
+Implement Views and APIs:
+
+# data_pusher_app/views.py
+
+from rest_framework import status
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import Account, Destination
+from .serializers import AccountSerializer, DestinationSerializer
+
+@api_view(['GET', 'POST'])
+def account_list(request):
+    if request.method == 'GET':
+        accounts = Account.objects.all()
+        serializer = AccountSerializer(accounts, many=True)
+        return Response(serializer.data)
+    elif request.method == 'POST':
+        serializer = AccountSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET', 'POST'])
+def destination_list(request):
+    if request.method == 'GET':
+        account_id = request.GET.get('account_id', None)
+        if account_id is not None:
+            destinations = Destination.objects.filter(account__account_id=account_id)
+            serializer = DestinationSerializer(destinations, many=True)
+            return Response(serializer.data)
+        return Response({'error': 'Account ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+    elif request.method == 'POST':
+        serializer = DestinationSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['POST'])
+def incoming_data(request):
+    if request.method == 'POST':
+        app_secret_token = request.headers.get('CL-XTOKEN', None)
+        if not app_secret_token:
+            return Response({'error': 'Unauthenticated'}, status=status.HTTP_401_UNAUTHORIZED)
+        
+        try:
+            account = Account.objects.get(app_secret_token=app_secret_token)
+        except Account.DoesNotExist:
+            return Response({'error': 'Invalid Account'}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.headers.get('Content-Type') != 'application/json':
+            return Response({'error': 'Invalid Data'}, status=status.HTTP_400_BAD_REQUEST)
+
+        data = request.data
+        destinations = Destination.objects.filter(account=account)
+        for destination in destinations:
+            # Use Python HTTP client to send data to the destination using url, http_method, and headers
+            # Implement logic here for GET and POST/PUT methods as described in the prompt
+            pass
+
+        return Response({'success': True}, status=status.HTTP_200_OK)
+
+Configure URLs:
+
+# data_pusher_app/urls.py
+
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('accounts/', views.account_list),
+    path('destinations/', views.destination_list),
+    path('server/incoming_data/', views.incoming_data),
+]
+
+Configure Main URLs:
+
+# data_pusher_project/urls.py
+
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('api/', include('data_pusher_app.urls')),
+]
+
+Run Migrations:
+
+python manage.py makemigrations
+python manage.py migrate
+
+Run the Development Server:
+
+python manage.py runserver
+ 	
